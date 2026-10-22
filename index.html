@@ -42,7 +42,7 @@ const remoteApi=apiOrigin!==location.origin,deviceStorageKey='jianqiang-training
 async function apiFetch(path,options={}){
   const headers=new Headers(options.headers||{});
   // Public editing was explicitly requested; no device key or third-party cookie is needed.
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),25000);
   try{return await fetch(new URL(path,apiOrigin),{...options,headers,signal:options.signal||controller.signal,credentials:remoteApi?'omit':'same-origin'})}finally{clearTimeout(timer)}
 }
 const seedPlans=[{id:'upper',name:'上肢力量',tag:'胸 · 肩 · 三头',exercises:[{name:'杠铃卧推',en:'BARBELL BENCH PRESS',sets:4,reps:8,kg:40},{name:'哑铃肩推',en:'DUMBBELL SHOULDER PRESS',sets:3,reps:10,kg:12},{name:'上斜哑铃卧推',en:'INCLINE DUMBBELL PRESS',sets:3,reps:10,kg:14},{name:'绳索下压',en:'TRICEPS PUSHDOWN',sets:3,reps:12,kg:15}]},{id:'lower',name:'下肢力量',tag:'股四头 · 臀 · 核心',exercises:[{name:'杠铃深蹲',en:'BARBELL SQUAT',sets:4,reps:8,kg:40},{name:'罗马尼亚硬拉',en:'ROMANIAN DEADLIFT',sets:3,reps:10,kg:40},{name:'腿举',en:'LEG PRESS',sets:3,reps:12,kg:60},{name:'站姿提踵',en:'CALF RAISE',sets:3,reps:15,kg:20}]},{id:'pull',name:'背部与核心',tag:'背 · 二头 · 核心',exercises:[{name:'高位下拉',en:'LAT PULLDOWN',sets:4,reps:10,kg:30},{name:'坐姿划船',en:'SEATED ROW',sets:3,reps:10,kg:25},{name:'哑铃弯举',en:'DUMBBELL CURL',sets:3,reps:12,kg:8}]}];
@@ -55,7 +55,7 @@ function localDate(d=new Date()){return `${d.getFullYear()}-${String(d.getMonth(
 function parseDate(d){return new Date(d+'T12:00:00')}
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function persistLocal(){try{localStorage.setItem(key,JSON.stringify(state));storageReady=true;return true}catch{storageReady=false;return false}}
-function save(){stampTrainingChanges(state,syncBaseline);syncBaseline=structuredClone(state);hasLocalState=true;const stored=persistLocal();if(cloudReady)queueCloudSave();if(!stored)toast('浏览器无法持久保存，当前记录仅在本页；请导出备份');return true}
+function save(){cloudPending=true;localRevision++;stampTrainingChanges(state,syncBaseline);syncBaseline=structuredClone(state);hasLocalState=true;const stored=persistLocal();if(cloudReady)queueCloudSave();if(!stored)toast('浏览器无法持久保存，当前记录仅在本页；请导出备份');return true}
 function toast(msg){$('#toast').textContent=msg;$('#toast').style.display='block';clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>$('#toast').style.display='none',3800)}
 function modal(title,body,onSave){$('#modal-form button[type=submit]').hidden=false;$('#modal-title').textContent=title;$('#modal-body').innerHTML=body;$('#modal-form').onsubmit=e=>{e.preventDefault();if(onSave(new FormData(e.target))!==false)$('#modal').close()};$('#modal').showModal()}
 $('#close-modal').onclick=$('#cancel-modal').onclick=()=>$('#modal').close();
@@ -82,21 +82,51 @@ function recordWeight(){modal('记录身体的变化',`<label class="field">日�
 function exportData(){const blob=new Blob([JSON.stringify({app:'jianqiang',version:1,exportedAt:new Date().toISOString(),...state},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`渐强-训练备份-${localDate()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast('数据备份已导出')}
 $('#backup').onclick=exportData;
 function bind(){const actions={plans:()=>navigate('plans'),progress:()=>navigate('progress'),start:()=>startWorkout(),export:exportData,'selected-start':()=>startWorkout(state.schedule[selectedDay],selectedDate>localDate()?localDate():selectedDate),weight:recordWeight,'new-plan':()=>editPlan(),goal:()=>modal('设定每周目标',`<label class="field">每周训练次数<input type="number" name="goal" value="${state.goal}" min="1" max="14" step="1" required></label>`,fd=>{state.goal=Number(fd.get('goal'));save();render()}),discard:()=>modal('放弃这次训练？','<p class="form-hint">此操作会清除当前未完成的草稿，已保存的历史记录会保留。</p>',()=>{state.draft=null;activeDraft=null;save();navigate('dashboard')}),'add-exercise':()=>modal('添加训练动作','<label class="field">动作名称<input name="name" maxlength="50" required></label>',fd=>{const name=fd.get('name').trim();if(!name)return false;activeDraft.exercises.push({name,sets:[{kg:0,reps:10,done:false}]});save();render()}),finish:()=>{if(!completedSets(activeDraft).length){toast('先完成并勾选至少一组，再保存训练');return}if(completedSets(activeDraft).some(s=>s.kg===null||!Number.isFinite(s.kg)||s.kg<0||s.kg>2000||!Number.isInteger(s.reps)||s.reps<1||s.reps>999)||$$('.set-row.done input').some(i=>!i.checkValidity())){toast('请检查重量和次数的有效范围');return}state.logs.push(structuredClone(activeDraft));state.draft=null;activeDraft=null;save();navigate('history');toast('训练已保存。又向前迈进了一步！')}};$$('[data-action]').forEach(b=>b.onclick=()=>actions[b.dataset.action]?.());$$('[data-date]').forEach(b=>b.onclick=()=>{selectedDate=b.dataset.date;selectedDay=Number(b.dataset.day);render()});$$('[data-edit-plan]').forEach(b=>b.onclick=()=>editPlan(b.dataset.editPlan));$$('[data-start-plan]').forEach(b=>b.onclick=()=>startWorkout(b.dataset.startPlan));$$('[data-schedule]').forEach(b=>b.onclick=()=>{const day=b.dataset.schedule;modal('安排周'+ '日一二三四五六'[day],`<label class="field">训练计划<select name="plan"><option value="">休息日</option><option value="recovery" ${state.schedule[day]==='recovery'?'selected':''}>轻活动 · 恢复</option>${state.plans.filter(p=>!p.archived).map(p=>`<option value="${p.id}" ${p.id===state.schedule[day]?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>`,fd=>{state.schedule[day]=fd.get('plan');save();render()})});$$('[data-delete-weight]').forEach(b=>b.onclick=()=>modal('删除这条体重记录？','<p class="form-hint">删除后不能撤销。建议先导出备份。</p>',()=>{state.deletedWeightIds=[...new Set([...(state.deletedWeightIds||[]),b.dataset.deleteWeight])];state.weights=state.weights.filter(w=>w.id!==b.dataset.deleteWeight);save();render()}));$$('[data-log]').forEach(b=>b.onclick=()=>{const l=state.logs.find(l=>l.id===b.dataset.log);modal(l.name,`<p class="form-hint">${esc(l.date)} · ${volume(l).toLocaleString()} kg 训练容量</p>${l.exercises.map(e=>`<h3 style="font-size:13px">${esc(e.name)} <button type="button" class="guide-tip-btn" data-guide="${esc(e.name)}" aria-label="查看${esc(e.name)}动作图解">动作图解 ↗</button></h3>${e.sets.filter(s=>s.done).map((s,i)=>`<div class="weight-row"><small>第 ${i+1} 组</small><span>${s.kg} kg × ${s.reps} 次</span></div>`).join('')}`).join('')}<p class="form-hint">${esc(l.notes)}</p>`,()=>{});$('#modal-form button[type=submit]').textContent='完成'});if($('#chart-exercise'))$('#chart-exercise').onchange=e=>$('#strength-chart').innerHTML=strengthChart(e.target.value);if(page==='session'){ $$('[data-field]').forEach(i=>i.oninput=()=>{if(!i.checkValidity())return;const s=activeDraft.exercises[i.dataset.e].sets[i.dataset.s];s[i.dataset.field]=i.dataset.field==='done'?i.checked:(i.value===''?null:Number(i.value));i.closest('.set-row').classList.toggle('done',s.done);save();$('#session-stats').textContent=`${completedSets(activeDraft).length} 组已完成 · ${volume(activeDraft).toLocaleString()} kg 训练容量`});$$('[data-add-set]').forEach(b=>b.onclick=()=>{const sets=activeDraft.exercises[b.dataset.addSet].sets;sets.push({...sets.at(-1)||{kg:0,reps:10},done:false});save();render()});$$('[data-remove]').forEach(b=>b.onclick=()=>{const [ei,si]=b.dataset.remove.split(':');activeDraft.exercises[ei].sets.splice(Number(si),1);save();render()});$('#session-note').oninput=e=>{activeDraft.notes=e.target.value;save()}}$('#modal-form button[type=submit]').textContent='保存';}
-async function connectCloud(){setSyncStatus('连接云端中 · 可先记录');try{if(new URLSearchParams(location.hash.slice(1)).has('pair'))history.replaceState(null,'',location.pathname+location.search);const res=await apiFetch('/api/state',{cache:'no-store'});if(!res.ok)throw new Error('cloud');const data=await res.json();canManageDevices=data.canManageDevices===true;if(data.state)state=mergeCloudState(data.state,hasLocalState?state:null);if(typeof applyRequestedProgression==='function')applyRequestedProgression();syncBaseline=structuredClone(state);state.deletedWeightIds=state.deletedWeightIds||[];hasLocalState=true;persistLocal();cloudReady=true;setSyncStatus('云端同步正常 · 公开可编辑');queueCloudSave();if(state.draft)activeDraft=state.draft;render()}catch{setSyncStatus('云端未连接 · 本机记录，尚未同步');cloudReady=false}}
+let cloudReady=false,cloudPending=true,localRevision=0,cloudTimer=null,cloudQueue=Promise.resolve(),lastCloudCounts=null;
 function setSyncStatus(text){const el=$('#sync-status');if(el)el.textContent='◈ '+text}
-function mergeCloudRows(a,b,keyName){const map=new Map();for(const x of [...(a||[]),...(b||[])])if(x&&x[keyName])map.set(x[keyName],x);return [...map.values()]}
+function syncError(error){return error?.name==='AbortError'?'云端连接超时':error?.message?.startsWith('HTTP ')?error.message:'无法连接云端（网络或跨站请求受限）'}
+function cloudCounts(value){return `${value.logs?.length||0} 条训练 / ${value.weights?.length||0} 条体重${value.draft?' / 有草稿':''}`}
+function syncSummary(){return '已确认同步 '+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+' · '+cloudCounts(state)}
+function reportSyncFailure(error){cloudPending=true;setSyncStatus('上传未确认 · 本机数据保留 · 点击重试');$('#sync-status').title=syncError(error)+'；本机 '+cloudCounts(state)+(lastCloudCounts?'；上次云端 '+lastCloudCounts:'');}
 function mergeCloudState(cloud,local){return {...initial(),...mergeTrainingState(cloud,local)}}
-let cloudReady=false,cloudTimer=null,cloudQueue=Promise.resolve();
-async function pushCloudState(){const res=await apiFetch('/api/state',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({state})});if(!res.ok)throw new Error('cloud');const data=await res.json();if(data.state)state=mergeCloudState(data.state,state);if(activeDraft&&state.draft)activeDraft=state.draft;syncBaseline=structuredClone(state);persistLocal();setSyncStatus('已同步 '+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+' · '+state.logs.length+' 条训练')}
-function queueCloudSave(){if(!cloudReady||!canEdit)return;setSyncStatus('等待同步…');clearTimeout(cloudTimer);cloudTimer=setTimeout(()=>{cloudQueue=cloudQueue.then(pushCloudState).catch(()=>setSyncStatus('同步失败 · 已保存在本机'))},600)}
-async function refreshCloud(){if(page==='session')return;if(!cloudReady){connectCloud();return}try{const res=await apiFetch('/api/state',{cache:'no-store'});if(!res.ok)throw Error('cloud');const data=await res.json();if(!data.state)return;const before=JSON.stringify(state);state=mergeCloudState(data.state,state);syncBaseline=structuredClone(state);persistLocal();setSyncStatus('已同步 '+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+' · '+state.logs.length+' 条训练');if(JSON.stringify(state)!==before){render();queueCloudSave()}}catch{cloudReady=false;setSyncStatus('云端未连接 · 本机记录，尚未同步')}}
+async function readCloud(){
+ const res=await apiFetch('/api/state',{cache:'no-store'});if(!res.ok)throw new Error('HTTP '+res.status+' · 云端读取失败');
+ const data=await res.json();canManageDevices=data.canManageDevices===true;
+ if(data.state){lastCloudCounts=cloudCounts(data.state);const local=hasLocalState?state:null;state=mergeCloudState(data.state,local);if(local&&JSON.stringify(state)!==JSON.stringify(data.state))cloudPending=true;}
+ if(typeof applyRequestedProgression==='function')applyRequestedProgression();
+ syncBaseline=structuredClone(state);state.deletedWeightIds=state.deletedWeightIds||[];hasLocalState=true;persistLocal();cloudReady=true;
+ if(state.draft)activeDraft=state.draft;
+ if(page!=='session')render();
+}
+async function connectCloud(){setSyncStatus('连接云端中 · 本机记录保留');try{
+ if(new URLSearchParams(location.hash.slice(1)).has('pair'))history.replaceState(null,'',location.pathname+location.search);
+ await readCloud();queueCloudSave();
+ }catch(error){cloudReady=false;reportSyncFailure(error)}}
+async function pushCloudState(){
+ const revision=localRevision;
+ const res=await apiFetch('/api/state',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({state})});
+ if(!res.ok)throw new Error('HTTP '+res.status+' · 云端上传失败');
+ const data=await res.json();if(!data.state)throw new Error('云端未返回保存结果');
+ state=mergeCloudState(data.state,state);lastCloudCounts=cloudCounts(data.state);if(activeDraft&&state.draft)activeDraft=state.draft;
+ cloudPending=localRevision!==revision;syncBaseline=structuredClone(state);persistLocal();
+ setSyncStatus(cloudPending?'本机有新修改 · 等待上传':syncSummary());
+ $('#sync-status').title='云端已确认：'+lastCloudCounts+'；点击立即同步';
+ if(page!=='session')render();if(cloudPending)queueCloudSave();
+}
+function queueCloudSave(){if(!cloudReady||!canEdit)return;setSyncStatus('等待上传确认 · '+cloudCounts(state));clearTimeout(cloudTimer);cloudTimer=setTimeout(()=>{cloudQueue=cloudQueue.then(pushCloudState).catch(reportSyncFailure)},600)}
+async function refreshCloud(){if(page==='session'&&cloudReady){if(cloudPending)queueCloudSave();return}if(!cloudReady){await connectCloud();return}try{
+ await readCloud();if(cloudPending)queueCloudSave();else setSyncStatus(syncSummary());
+ }catch(error){cloudReady=false;reportSyncFailure(error)}}
+async function syncNow(){clearTimeout(cloudTimer);setSyncStatus('正在同步 · 请保持页面打开');cloudQueue=cloudQueue.then(async()=>{
+ await readCloud();await pushCloudState();toast(cloudPending?'还有新修改，正在继续同步':'云端已确认保存：'+lastCloudCounts);
+ }).catch(error=>{cloudReady=false;reportSyncFailure(error);toast(syncError(error)+'。数据仍在此浏览器，请先导出备份。')});return cloudQueue;}
 window.addEventListener('focus',refreshCloud);window.addEventListener('online',refreshCloud);
 render();connectCloud();if(!storageReady)toast('当前浏览器无法保存数据，请使用导出备份功能');
 
 function exerciseRestAdvice(name){const restart=(state.draft?.phaseId||state.phase?.active||'restart')==='restart';const isolated=/腿弯举|弯举|侧平举|下压|提踵/.test(name);return '组间休息 '+(isolated?(restart?'90–120 秒':'约 2 分钟'):(restart?'2–3 分钟':'3–5 分钟'))+' · 动作变形即停止'}
 
-$('#sync-status').style.cursor='pointer';$('#sync-status').title='点击立即同步两个网站的数据';$('#sync-status').onclick=()=>{if(cloudReady){queueCloudSave();refreshCloud()}else connectCloud()};
-setInterval(()=>{if(!document.hidden&&page!=='session')refreshCloud()},15000);
+$('#sync-status').style.cursor='pointer';$('#sync-status').title='点击立即上传本机记录并读取另一端数据';$('#sync-status').setAttribute('role','button');$('#sync-status').setAttribute('tabindex','0');$('#sync-status').onclick=syncNow;$('#sync-status').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();syncNow()}};
+setInterval(()=>{if(!document.hidden)refreshCloud()},15000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshCloud()});
 </script><script>// A conservative return-to-training plan. Calendar weeks are review windows, not automatic progression.
 const returnPhases=[
