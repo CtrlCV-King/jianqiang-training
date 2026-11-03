@@ -56,8 +56,9 @@ function mergeTrainingState(cloud,local){
  const mergeRows=(a=[],b=[],preferLocal=false)=>{const rows=new Map(a.map(x=>[x.id,x]));for(const x of b){const old=rows.get(x.id);if(!old||stamp(x)>stamp(old)||((preferLocal||stamp(x)===0)&&stamp(x)===stamp(old)))rows.set(x.id,x)}return [...rows.values()]};
  const config=Number(local.configUpdatedAt||0)>Number(cloud.configUpdatedAt||0)?local:cloud;
  const draft=Number(local.draftUpdatedAt||0)>Number(cloud.draftUpdatedAt||0)||(!local.draftUpdatedAt&&!cloud.draftUpdatedAt&&local.draft)?local:cloud;
+ const deletedLogIds=[...new Set([...(cloud.deletedLogIds||[]),...(local.deletedLogIds||[])])];
  const deletedWeightIds=[...new Set([...(cloud.deletedWeightIds||[]),...(local.deletedWeightIds||[])])];
- return {...cloud,...config,plans:mergeRows(cloud.plans,local.plans),logs:mergeRows(cloud.logs,local.logs,true),weights:mergeRows(cloud.weights,local.weights,true).filter(x=>!deletedWeightIds.includes(x.id)),deletedWeightIds,draft:draft.draft??null,draftUpdatedAt:draft.draftUpdatedAt||0};
+ return {...cloud,...config,plans:mergeRows(cloud.plans,local.plans),logs:mergeRows(cloud.logs,local.logs,true).filter(x=>!deletedLogIds.includes(x.id)),deletedLogIds,weights:mergeRows(cloud.weights,local.weights,true).filter(x=>!deletedWeightIds.includes(x.id)),deletedWeightIds,draft:draft.draft??null,draftUpdatedAt:draft.draftUpdatedAt||0};
 }
 function stampTrainingChanges(state,before){
  const now=Math.max(Date.now(),Number(before?.configUpdatedAt||0)+1,Number(before?.draftUpdatedAt||0)+1);
